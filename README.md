@@ -3,11 +3,13 @@
 Real-time spectrum analyzer (RTA) and time alignment measurement in Python, built for the
 **Dayton Audio iMM-6** microphone and test signals played from an iPhone.
 
-- `gen_noise.py` generates the test signal WAV files to copy to the iPhone.
-- `rta.py` captures the microphone, applies the iMM-6 calibration and shows the response in
+Everything runs through `main.py` and its three commands:
+
+- `generate` (`gen_noise.py`) creates the test signal WAV files to copy to the iPhone.
+- `rta` (`rta.py`) captures the microphone, applies the iMM-6 calibration and shows the response in
   1/3-octave bands (configurable) alongside a target curve. Has a subwoofer mode and labeled
   overlays to compare settings.
-- `delay.py` measures the left/right arrival time difference and tells you which distances to
+- `delay` (`delay.py`) measures the left/right arrival time difference and tells you which distances to
   enter in the head unit's time alignment.
 
 ![RTA in 1/3 octave with a 5-position spatial average](docs/rta_spatial_average.png)
@@ -24,13 +26,13 @@ Requires [uv](https://docs.astral.sh/uv/). On Linux also: `sudo apt install libp
 
 ```bash
 uv sync                          # create .venv and install dependencies
-uv run gen_noise.py --type all   # creates every test signal in signals/
-uv run rta.py --list-devices     # find the microphone's device index
-uv run rta.py --device 1 --cal 7012345.txt
+uv run main.py generate --type all  # creates every test signal in signals/
+uv run main.py rta --list-devices   # find the microphone's device index
+uv run main.py rta --device 1 --cal 7012345.txt
 ```
 
-Test without a microphone: `uv run rta.py --wav signals/pink_noise_LR.wav` (should look flat).
-All scripts accept `-v` for debug output.
+Test without a microphone: `uv run main.py rta --wav signals/pink_noise_LR.wav` (should look flat).
+Every command accepts `-v` for debug output and `--help` for its options.
 
 ## Test signals
 
@@ -40,7 +42,7 @@ All scripts accept `-v` for debug output.
 | `pink_noise_L.wav`, `pink_noise_R.wav` | EQ: one side at a time |
 | `sub_noise_LR.wav` | Subwoofer phase/distance: pink noise limited to 40–200 Hz |
 | `rattle_sweep.wav` | Rattle test: slow 20–120 Hz sine sweep (60 s) |
-| `delay_sweeps.wav` | Time alignment: alternating left/right sweeps for `delay.py` |
+| `delay_sweeps.wav` | Time alignment: alternating left/right sweeps for `main.py delay` |
 | `white_noise_*.wav` | White noise, same layout as pink (rarely needed) |
 
 All files loop seamlessly: play them on repeat.
@@ -73,14 +75,14 @@ Engine off, or idling with the fan off. The microphone goes at the driver's head
 Play `rattle_sweep.wav` at a moderate-to-loud level and listen for buzzing door panels, mirrors,
 the license plate, etc. Fix them first: they add distortion that no EQ can remove.
 
-### 2. Time alignment (`delay.py`)
+### 2. Time alignment (`main.py delay`)
 
 1. Tape-measure the distance from your head to each speaker and enter it in the head unit's
    time alignment (Pioneer units take distances). That alone gets most of the benefit.
 2. Play `delay_sweeps.wav` on loop, put the microphone at your head position and run:
 
    ```bash
-   uv run delay.py --device 1 --left-cm 95   # your tape-measured left distance
+   uv run main.py delay --device 1 --left-cm 95   # your tape-measured left distance
    ```
 
    It records 12 s, finds each sweep's impulse response and prints how much later one side
@@ -102,14 +104,14 @@ Only relative timing is measured (the phone and laptop clocks aren't linked), wh
 head unit needs. The clock drift between the two devices is estimated and removed. For the rear
 speakers, use the fader to play only the rear pair.
 
-### 3. Subwoofer (`rta.py --sub`)
+### 3. Subwoofer (`main.py rta --sub`)
 
 Sub mode shows 20–300 Hz in 1/12 octave, absolute dBFS, slow averaging, and the level of the
 octave around the crossover (`--xo`, default 80 Hz). Play `sub_noise_LR.wav` with the sub and
 the front speakers on:
 
 ```bash
-uv run rta.py --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase normal,phase reverse"
+uv run main.py rta --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase normal,phase reverse"
 ```
 
 1. **Phase/polarity:** wait for the curve to settle and press **o** to keep it as an overlay
@@ -147,7 +149,7 @@ uv run rta.py --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase normal,
 
 ![RTA in 1/6 octave](docs/rta_sixth_octave.png)
 
-## Keys (`rta.py`)
+## Keys (`main.py rta`)
 
 | Key | Action |
 |---|---|
@@ -170,4 +172,4 @@ uv run rta.py --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase normal,
 - `--tau 2` for steadier averaging (pink noise fluctuates; 1–2 s is reasonable).
 - `--sub`, `--xo 80`: subwoofer mode and crossover frequency.
 - `--labels "a,b,c"`: names for the overlays, in order (otherwise A, B, C...).
-- `delay.py --seconds 20` for more cycles, `--save-wav` to keep the recording.
+- `main.py delay --seconds 20` for more cycles, `--save-wav` to keep the recording.

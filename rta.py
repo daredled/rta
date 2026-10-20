@@ -23,11 +23,9 @@ and the level of the octave around the crossover (--xo) shown live and on every
 overlay. Play sub_noise_LR.wav and keep an overlay per setting (sub phase
 normal/reverse, sub distance...) to compare them.
 """
-import argparse
 import csv
 import logging
 import re
-import sys
 import threading
 import time
 import wave
@@ -36,7 +34,6 @@ from pathlib import Path
 
 import numpy as np
 
-import logsetup
 
 log = logging.getLogger(__name__)
 
@@ -218,8 +215,7 @@ def parse_device(value):
     return int(value) if value.isdigit() else value
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(p):
     p.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     p.add_argument("--device", type=parse_device, help="input device index or part of its name")
     p.add_argument("--channel", type=int, default=1, help="microphone input channel (default: 1)")
@@ -237,15 +233,6 @@ def main():
     p.add_argument("--xo", type=float, default=80.0, help="sub crossover frequency in Hz (default: 80)")
     p.add_argument("--labels", help="comma-separated overlay labels, e.g. 'phase normal,phase reverse'")
     p.add_argument("--wav", type=Path, help="analyze a looping WAV instead of the microphone (testing)")
-    logsetup.add_arguments(p)
-    args = p.parse_args()
-    logsetup.setup(args)
-
-    try:
-        return run(args)
-    except (ValueError, OSError) as exc:
-        log.error("%s", exc)
-        return 1
 
 
 def run(args):
@@ -521,7 +508,3 @@ def run(args):
             stream.stop()
             stream.close()
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

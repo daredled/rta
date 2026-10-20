@@ -2,7 +2,7 @@
 """Measure the left/right arrival time difference for time alignment.
 
 Play signals/delay_sweeps.wav on loop from the phone, put the microphone at
-the listening position (driver's head) and run this script. It records the
+the listening position (driver's head) and run "main.py delay". It records the
 alternating sweeps, turns each one into an impulse response and reports how
 much later one side arrives than the other, as the distance difference to
 enter in the head unit's time alignment.
@@ -11,9 +11,7 @@ Only relative timing is measured: the phone and laptop clocks are not linked,
 so the absolute latency is unknown, but it is the same for both sides. Clock
 drift between the two devices is estimated from the sweep spacing and removed.
 """
-import argparse
 import logging
-import sys
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +19,6 @@ from pathlib import Path
 import numpy as np
 
 import gen_noise as gn
-import logsetup
 
 log = logging.getLogger(__name__)
 
@@ -186,8 +183,7 @@ def parse_device(value):
     return int(value) if value.isdigit() else value
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(p):
     p.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     p.add_argument("--device", type=parse_device, help="input device index or part of its name")
     p.add_argument("--channel", type=int, default=1, help="microphone input channel (default: 1)")
@@ -197,15 +193,6 @@ def main():
     p.add_argument("--wav", type=Path, help="analyze a recorded WAV instead of recording (testing)")
     p.add_argument("--save-wav", action="store_true", help="also save the recording to captures/")
     p.add_argument("--no-plot", action="store_true", help="don't open the plot window (PNG is still saved)")
-    logsetup.add_arguments(p)
-    args = p.parse_args()
-    logsetup.setup(args)
-
-    try:
-        return run(args)
-    except (ValueError, OSError) as exc:
-        log.error("%s", exc)
-        return 1
 
 
 def run(args):
@@ -239,7 +226,3 @@ def run(args):
     report(res, args.left_cm)
     plot(res, fs, out / f"delay_{stamp}.png", show=not args.no_plot)
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

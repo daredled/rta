@@ -12,14 +12,12 @@ Signals (--type):
 Noise files are generated in the frequency domain, so they are periodic: when
 played on loop there is no click at the seam. The sweep files also loop cleanly.
 """
-import argparse
 import logging
 import wave
 from pathlib import Path
 
 import numpy as np
 
-import logsetup
 
 log = logging.getLogger(__name__)
 
@@ -95,8 +93,7 @@ def write_wav(path, left, right, fs):
         w.writeframes(pcm.tobytes())
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(p):
     p.add_argument("--type", choices=["pink", "white", "sub", "rattle", "delay", "all"], default="pink",
                    help="signal to generate (default: pink)")
     p.add_argument("--seconds", type=float, default=30.0, help="noise duration in seconds (default: 30)")
@@ -105,10 +102,9 @@ def main():
     p.add_argument("--fmin", type=float, default=15.0, help="pink/white lower limit in Hz (default: 15)")
     p.add_argument("--fmax", type=float, default=22000.0, help="pink/white upper limit in Hz (default: 22000)")
     p.add_argument("--out", type=Path, default=Path("signals"), help="output folder (default: signals)")
-    logsetup.add_arguments(p)
-    args = p.parse_args()
-    logsetup.setup(args)
 
+
+def run(args):
     args.out.mkdir(parents=True, exist_ok=True)
     kinds = ["pink", "white", "sub", "rattle", "delay"] if args.type == "all" else [args.type]
 
@@ -131,7 +127,3 @@ def main():
             save("rattle_sweep.wav", x, x)
         elif kind == "delay":
             save("delay_sweeps.wav", *delay_sequence(args.fs))
-
-
-if __name__ == "__main__":
-    main()
