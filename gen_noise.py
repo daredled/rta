@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Generate test signal WAV files to play from the iPhone.
+"""Generate test signal WAV files to play from a phone (fallback setup).
 
-(To play them straight from the laptop instead, use "rta --play" and "delay --play".)
+Normally the laptop plays these signals itself ("rta" and "delay" do it by
+default). The WAV files are only needed when the laptop's combo jack can't
+play and record at the same time and a phone has to play the signal instead.
 
 Signals (--type):
     pink    pink_noise_{LR,L,R}.wav   pink noise, both / left only / right only (EQ)
@@ -85,7 +87,7 @@ def delay_sequence(fs, pairs=10, peak_dbfs=-6.0):
     return left, right
 
 
-PLAY_SIGNALS = ("pink", "pink-L", "pink-R", "sub", "white")
+PLAY_SIGNALS = ("pink", "pink-L", "pink-R", "sub", "rattle", "white")
 
 
 def loop_signal(name, fs, level_dbfs=-18.0):
@@ -93,6 +95,9 @@ def loop_signal(name, fs, level_dbfs=-18.0):
     kind, _, side = name.partition("-")
     if kind == "sub":
         x = make_noise(30.0, fs, "pink", 40.0, 200.0, level_dbfs)
+    elif kind == "rattle":
+        # A sine has a much lower crest factor than noise: -18 dBFS RMS noise ~ -6 dBFS peak sine.
+        x = log_sweep(20.0, 120.0, 60.0, fs, fade_s=0.05) * 10 ** ((level_dbfs + 12) / 20)
     else:
         x = make_noise(30.0, fs, kind, rms_dbfs=level_dbfs)
     silence = np.zeros_like(x)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Measure the left/right arrival time difference for time alignment.
 
-Play signals/delay_sweeps.wav on loop from the phone (or use --play to play it
-from the laptop), put the microphone at
+The laptop plays alternating left/right sweeps (or, with --no-play, a phone
+plays signals/delay_sweeps.wav on loop), with the microphone at
 the listening position (driver's head) and run "main.py delay". It records the
 alternating sweeps, turns each one into an impulse response and reports how
 much later one side arrives than the other, as the distance difference to
@@ -118,9 +118,9 @@ def record(args):
     if args.play:
         log.info("Recording %g s...", args.seconds)
     else:
-        log.info("Recording %g s... (delay_sweeps.wav must be playing on loop)", args.seconds)
-        log.info("Tip: for time alignment, playing from the laptop with --play over a cable is "
-                 "more reliable than a phone, especially over Bluetooth.")
+        log.info("Recording %g s... (delay_sweeps.wav must be playing on loop from the phone)", args.seconds)
+        log.info("Tip: for time alignment, letting the laptop play the sweeps over a cable (without "
+                 "--no-play) is more reliable than a phone, especially over Bluetooth.")
     rec = sd.rec(int(args.seconds * args.fs), samplerate=args.fs, channels=args.channel,
                  device=args.device, dtype="float32")
     sd.wait()
@@ -150,8 +150,8 @@ def report(res, left_cm):
     log.info("\n".join(lines))
     if res["spread_s"] > MAX_SPREAD_S or abs(res["drift_ppm"]) > MAX_DRIFT_PPM:
         log.warning("the cycles are inconsistent (spread ±%.2f ms, drift %+.0f ppm), so this result is "
-                    "unreliable. Measure again, ideally with --play from the laptop over a cable "
-                    "instead of a phone or Bluetooth.", res["spread_s"] * 1000, res["drift_ppm"])
+                    "unreliable. Measure again, ideally with the laptop playing the sweeps over a "
+                    "cable instead of a phone or Bluetooth.", res["spread_s"] * 1000, res["drift_ppm"])
 
 
 def plot(res, fs, out_png, show):
@@ -202,10 +202,10 @@ def add_arguments(p):
     p.add_argument("--fs", type=int, default=48000, help="sample rate (default: 48000)")
     p.add_argument("--seconds", type=float, default=12.0, help="recording length in s (default: 12)")
     p.add_argument("--left-cm", type=float, help="tape-measured distance to the left speaker, to print both values")
-    p.add_argument("--play", action="store_true",
-                   help="play the left/right sweeps from the laptop while recording (no phone needed)")
+    p.add_argument("--no-play", action="store_true",
+                   help="don't play the sweeps: a phone plays delay_sweeps.wav instead (fallback setup)")
     p.add_argument("--out-device", type=parse_device,
-                   help="output device for --play, index or part of its name (default: system default)")
+                   help="output device for the sweeps, index or part of its name (default: system default)")
     p.add_argument("--wav", type=Path, help="analyze a recorded WAV instead of recording (testing)")
     p.add_argument("--save-wav", action="store_true", help="also save the recording to captures/")
     p.add_argument("--no-plot", action="store_true", help="don't open the plot window (PNG is still saved)")
@@ -217,8 +217,7 @@ def run(args):
         log.info("%s", sd.query_devices())
         return 0
 
-    if args.play and args.wav:
-        raise ValueError("--play records from the microphone and --wav replaces it: use one or the other")
+    args.play = not (args.no_play or args.wav)
     if args.wav:
         rec, fs = read_wav(args.wav)
     elif args.play:

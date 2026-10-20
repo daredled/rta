@@ -229,10 +229,12 @@ def add_arguments(p):
     p.add_argument("--xo", type=float, default=80.0, help="sub crossover frequency in Hz (default: 80)")
     p.add_argument("--labels", help="comma-separated overlay labels, e.g. 'phase normal,phase reverse'")
     p.add_argument("--play", choices=gen_noise.PLAY_SIGNALS,
-                   help="play this signal on loop from the laptop while measuring (no phone needed)")
+                   help="signal the laptop plays on loop while measuring (default: pink; sub with --sub)")
+    p.add_argument("--no-play", action="store_true",
+                   help="don't play anything: a phone plays the WAV files instead (fallback setup)")
     p.add_argument("--out-device", type=parse_device,
-                   help="output device for --play, index or part of its name (default: system default)")
-    p.add_argument("--play-level", type=float, default=-18.0, help="--play RMS level in dBFS (default: -18)")
+                   help="output device for the test signal, index or part of its name (default: system default)")
+    p.add_argument("--play-level", type=float, default=-18.0, help="test signal RMS level in dBFS (default: -18)")
     p.add_argument("--wav", type=Path, help="analyze a looping WAV instead of the microphone (testing)")
 
 
@@ -248,6 +250,10 @@ def run(args):
         if getattr(args, name) is None:
             setattr(args, name, value)
     labels = [s.strip() for s in args.labels.split(",")] if args.labels else []
+    if args.play and (args.no_play or args.wav):
+        raise ValueError("--play can't be combined with --no-play or --wav")
+    if args.play is None and not (args.no_play or args.wav):
+        args.play = "sub" if args.sub else "pink"
 
     cal = load_curve_file(args.cal) if args.cal else None
     if cal is None:
@@ -279,8 +285,6 @@ def run(args):
 
     ring = Ring(max(args.fft * 2, args.fs))
     stop = threading.Event()
-    if args.play and args.wav:
-        raise ValueError("--play plays to the car and --wav replaces the microphone: use one or the other")
     if args.wav:
         data = load_wav(args.wav, args.fs)
         threading.Thread(target=play_wav, args=(data, args.fs, ring, stop), daemon=True).start()
