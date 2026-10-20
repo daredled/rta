@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate test signal WAV files to play from the iPhone.
 
+(To play them straight from the laptop instead, use "rta --play" and "delay --play".)
+
 Signals (--type):
     pink    pink_noise_{LR,L,R}.wav   pink noise, both / left only / right only (EQ)
     white   white_noise_{LR,L,R}.wav  white noise, same layout
@@ -81,6 +83,20 @@ def delay_sequence(fs, pairs=10, peak_dbfs=-6.0):
         left[p * period:p * period + len(sweep)] = sweep
         right[p * period + n1:p * period + n1 + len(sweep)] = sweep
     return left, right
+
+
+PLAY_SIGNALS = ("pink", "pink-L", "pink-R", "sub", "white")
+
+
+def loop_signal(name, fs, level_dbfs=-18.0):
+    """(left, right) for one of PLAY_SIGNALS, the same content as the matching WAV file."""
+    kind, _, side = name.partition("-")
+    if kind == "sub":
+        x = make_noise(30.0, fs, "pink", 40.0, 200.0, level_dbfs)
+    else:
+        x = make_noise(30.0, fs, kind, rms_dbfs=level_dbfs)
+    silence = np.zeros_like(x)
+    return (silence if side == "R" else x), (silence if side == "L" else x)
 
 
 def write_wav(path, left, right, fs):

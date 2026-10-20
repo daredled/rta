@@ -34,6 +34,8 @@ from pathlib import Path
 
 import numpy as np
 
+import gen_noise
+from playback import parse_device, start_loop
 
 log = logging.getLogger(__name__)
 
@@ -209,12 +211,6 @@ def play_wav(data, fs, ring, stop):
             time.sleep(delay)
 
 
-def parse_device(value):
-    if value is None:
-        return None
-    return int(value) if value.isdigit() else value
-
-
 def add_arguments(p):
     p.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     p.add_argument("--device", type=parse_device, help="input device index or part of its name")
@@ -232,6 +228,11 @@ def add_arguments(p):
     p.add_argument("--sub", action="store_true", help="subwoofer mode (see above)")
     p.add_argument("--xo", type=float, default=80.0, help="sub crossover frequency in Hz (default: 80)")
     p.add_argument("--labels", help="comma-separated overlay labels, e.g. 'phase normal,phase reverse'")
+    p.add_argument("--play", choices=gen_noise.PLAY_SIGNALS,
+                   help="play this signal on loop from the laptop while measuring (no phone needed)")
+    p.add_argument("--out-device", type=parse_device,
+                   help="output device for --play, index or part of its name (default: system default)")
+    p.add_argument("--play-level", type=float, default=-18.0, help="--play RMS level in dBFS (default: -18)")
     p.add_argument("--wav", type=Path, help="analyze a looping WAV instead of the microphone (testing)")
 
 
@@ -278,6 +279,8 @@ def run(args):
 
     ring = Ring(max(args.fft * 2, args.fs))
     stop = threading.Event()
+    if args.play and args.wav:
+        raise ValueError("--play plays to the car and --wav replaces the microphone: use one or the other")
     if args.wav:
         data = load_wav(args.wav, args.fs)
         threading.Thread(target=play_wav, args=(data, args.fs, ring, stop), daemon=True).start()
@@ -286,6 +289,11 @@ def run(args):
     else:
         stream = open_mic(args, ring)
         source = "microphone"
+    out_stream = None
+    if args.play:
+        out_stream = start_loop(*gen_noise.loop_signal(args.play, args.fs, args.play_level), args.fs,
+                                args.out_device, name=args.play)
+        source += f" (playing {args.play})"
 
     state = {
         "paused": False, "normalized": not args.sub, "show_peak": True, "overlays": [],
@@ -504,7 +512,8 @@ def run(args):
         plt.show()
     finally:
         stop.set()
-        if stream is not None:
-            stream.stop()
-            stream.close()
+        for s in (stream, out_stream):
+            if s is not None:
+                s.stop()
+                s.close()
     return 0

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure the left/right arrival time difference for time alignment.
 
-Play signals/delay_sweeps.wav on loop from the phone, put the microphone at
+Play signals/delay_sweeps.wav on loop from the phone (or use --play to play it
+from the laptop), put the microphone at
 the listening position (driver's head) and run "main.py delay". It records the
 alternating sweeps, turns each one into an impulse response and reports how
 much later one side arrives than the other, as the distance difference to
@@ -12,6 +13,7 @@ so the absolute latency is unknown, but it is the same for both sides. Clock
 drift between the two devices is estimated from the sweep spacing and removed.
 """
 import logging
+import time
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 import gen_noise as gn
+from playback import parse_device, start_loop
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +111,10 @@ def read_wav(path):
 def record(args):
     import sounddevice as sd
 
-    log.info("Recording %g s... (delay_sweeps.wav must be playing on loop)", args.seconds)
+    if args.play:
+        log.info("Recording %g s...", args.seconds)
+    else:
+        log.info("Recording %g s... (delay_sweeps.wav must be playing on loop)", args.seconds)
     rec = sd.rec(int(args.seconds * args.fs), samplerate=args.fs, channels=args.channel,
                  device=args.device, dtype="float32")
     sd.wait()
@@ -179,10 +185,6 @@ def plot(res, fs, out_png, show):
         plt.show()
 
 
-def parse_device(value):
-    return int(value) if value.isdigit() else value
-
-
 def add_arguments(p):
     p.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     p.add_argument("--device", type=parse_device, help="input device index or part of its name")
@@ -190,6 +192,10 @@ def add_arguments(p):
     p.add_argument("--fs", type=int, default=48000, help="sample rate (default: 48000)")
     p.add_argument("--seconds", type=float, default=12.0, help="recording length in s (default: 12)")
     p.add_argument("--left-cm", type=float, help="tape-measured distance to the left speaker, to print both values")
+    p.add_argument("--play", action="store_true",
+                   help="play the left/right sweeps from the laptop while recording (no phone needed)")
+    p.add_argument("--out-device", type=parse_device,
+                   help="output device for --play, index or part of its name (default: system default)")
     p.add_argument("--wav", type=Path, help="analyze a recorded WAV instead of recording (testing)")
     p.add_argument("--save-wav", action="store_true", help="also save the recording to captures/")
     p.add_argument("--no-plot", action="store_true", help="don't open the plot window (PNG is still saved)")
@@ -201,8 +207,18 @@ def run(args):
         log.info("%s", sd.query_devices())
         return 0
 
+    if args.play and args.wav:
+        raise ValueError("--play records from the microphone and --wav replaces it: use one or the other")
     if args.wav:
         rec, fs = read_wav(args.wav)
+    elif args.play:
+        out_stream = start_loop(*gn.delay_sequence(args.fs), args.fs, args.out_device, name="delay sweeps")
+        try:
+            time.sleep(0.5)  # let the output (and the car's input) settle before recording
+            rec, fs = record(args), args.fs
+        finally:
+            out_stream.stop()
+            out_stream.close()
     else:
         rec, fs = record(args), args.fs
 

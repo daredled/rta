@@ -57,6 +57,31 @@ All files loop seamlessly: play them on repeat.
   Otherwise Windows reshapes the signal and the measurement is useless.
 - Set the gain so the level sits between -40 and -12 dBFS with no CLIPPING warning.
 
+## Laptop only (no phone)
+
+The iMM-6 has a headphone pass-through jack, so the laptop's single combo jack can both record
+the microphone and play the test signal into the car:
+
+```
+laptop combo jack ── iMM-6 ── pass-through ── AUX cable ── head unit AUX input
+```
+
+Add `--play` and pick the output with `--out-device` (usually the laptop's "Headphones"; see
+`--list-devices`). The signal is generated on the fly, so no WAV files are needed:
+
+```bash
+uv run main.py rta --device 1 --out-device 2 --play pink      # or pink-L, pink-R, sub, white
+uv run main.py delay --device 1 --out-device 2 --play --left-cm 95
+```
+
+- `--play-level` sets the `rta` signal level (default -18 dBFS RMS). Start with the car's volume low.
+- Since the mic is plugged into the laptop, use a **4-pole TRRS extension cable** (CTIA, 1–2 m)
+  to hold it at head height with the laptop on the seat.
+- If the head unit has no AUX input, pair the laptop over Bluetooth and choose the car as the
+  output device (keep the laptop jack as the input, not the car's hands-free microphone).
+- Hum or whine with the laptop charging from the car is a ground loop: unplug the charger or
+  add a ground loop isolator on the AUX cable.
+
 ## Calibration file
 
 Each iMM-6 has its own file matched to its serial number (printed on the microphone). Download
@@ -69,6 +94,7 @@ toward the front of the car, use the 0° file.
 Before starting: head unit EQ flat, loudness/bass boost/"sound effects" off, fader and balance
 centered. iPhone: Music EQ off, Sound Check off. Prefer cable/USB/CarPlay over Bluetooth.
 Engine off, or idling with the fan off. The microphone goes at the driver's head height.
+Each step below plays a WAV from the phone; with the laptop only, use `--play` instead.
 
 ### 1. Rattle test
 
@@ -79,7 +105,8 @@ the license plate, etc. Fix them first: they add distortion that no EQ can remov
 
 1. Tape-measure the distance from your head to each speaker and enter it in the head unit's
    time alignment (Pioneer units take distances). That alone gets most of the benefit.
-2. Play `delay_sweeps.wav` on loop, put the microphone at your head position and run:
+2. Play `delay_sweeps.wav` on loop (or add `--play`), put the microphone at your head position
+   and run:
 
    ```bash
    uv run main.py delay --device 1 --left-cm 95   # your tape-measured left distance
@@ -107,7 +134,7 @@ speakers, use the fader to play only the rear pair.
 ### 3. Subwoofer (`main.py rta --sub`)
 
 Sub mode shows 20–300 Hz in 1/12 octave, absolute dBFS, slow averaging, and the level of the
-octave around the crossover (`--xo`, default 80 Hz). Play `sub_noise_LR.wav` with the sub and
+octave around the crossover (`--xo`, default 80 Hz). Play `sub_noise_LR.wav` (or `--play sub`) with the sub and
 the front speakers on:
 
 ```bash
@@ -126,7 +153,7 @@ uv run main.py rta --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase no
 
 ### 4. EQ
 
-1. Play `pink_noise_LR.wav` on loop at a normal-to-loud listening level.
+1. Play `pink_noise_LR.wav` on loop (or `--play pink`) at a normal-to-loud listening level.
 2. Move the microphone through 4–6 positions around your head (±15 cm) and press **a** at each
    one to add it to the spatial average (orange curve). This avoids correcting peaks/dips that
    only exist at a single point.
@@ -172,4 +199,5 @@ uv run main.py rta --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase no
 - `--tau 2` for steadier averaging (pink noise fluctuates; 1–2 s is reasonable).
 - `--sub`, `--xo 80`: subwoofer mode and crossover frequency.
 - `--labels "a,b,c"`: names for the overlays, in order (otherwise A, B, C...).
+- `--play SIGNAL --out-device N`: play the test signal from the laptop (see "Laptop only").
 - `main.py delay --seconds 20` for more cycles, `--save-wav` to keep the recording.
