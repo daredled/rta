@@ -26,6 +26,10 @@ from playback import parse_device, start_loop
 log = logging.getLogger(__name__)
 
 SPEED_OF_SOUND = 343.0  # m/s at about 20 °C
+# Above these the cycles disagree more than a clean wired measurement would
+# (Bluetooth buffering or resampling glitches are the usual cause).
+MAX_SPREAD_S = 0.05e-3   # about 1.7 cm
+MAX_DRIFT_PPM = 300.0
 PLOT_PRE_MS, PLOT_POST_MS = 5.0, 25.0
 
 
@@ -115,6 +119,8 @@ def record(args):
         log.info("Recording %g s...", args.seconds)
     else:
         log.info("Recording %g s... (delay_sweeps.wav must be playing on loop)", args.seconds)
+        log.info("Tip: for time alignment, playing from the laptop with --play over a cable is "
+                 "more reliable than a phone, especially over Bluetooth.")
     rec = sd.rec(int(args.seconds * args.fs), samplerate=args.fs, channels=args.channel,
                  device=args.device, dtype="float32")
     sd.wait()
@@ -142,6 +148,10 @@ def report(res, left_cm):
     lines += ["If time alignment was already on, the difference adds to the current settings.",
               "After applying it, measure again: the difference should be close to 0 ms."]
     log.info("\n".join(lines))
+    if res["spread_s"] > MAX_SPREAD_S or abs(res["drift_ppm"]) > MAX_DRIFT_PPM:
+        log.warning("the cycles are inconsistent (spread ±%.2f ms, drift %+.0f ppm), so this result is "
+                    "unreliable. Measure again, ideally with --play from the laptop over a cable "
+                    "instead of a phone or Bluetooth.", res["spread_s"] * 1000, res["drift_ppm"])
 
 
 def plot(res, fs, out_png, show):

@@ -103,14 +103,20 @@ the license plate, etc. Fix them first: they add distortion that no EQ can remov
 
 ### 2. Time alignment (`main.py delay`)
 
+> **Use the laptop for this step** (see [Laptop only](#laptop-only-no-phone)): `--play` through
+> the iMM-6 pass-through and an AUX cable puts playback and recording on the same clock, with no
+> codec or buffering in between. Playing from the phone also works, but a Bluetooth glitch
+> between sweeps shifts the timing; `delay` warns when the cycles disagree.
+
 1. Tape-measure the distance from your head to each speaker and enter it in the head unit's
    time alignment (Pioneer units take distances). That alone gets most of the benefit.
-2. Play `delay_sweeps.wav` on loop (or add `--play`), put the microphone at your head position
-   and run:
+2. Put the microphone at your head position and run:
 
    ```bash
-   uv run main.py delay --device 1 --left-cm 95   # your tape-measured left distance
+   uv run main.py delay --device 1 --out-device 2 --play --left-cm 95   # your tape-measured left distance
    ```
+
+   (Without `--play`, play `delay_sweeps.wav` on loop from the phone first.)
 
    It records 12 s, finds each sweep's impulse response and prints how much later one side
    arrives, as a distance:
