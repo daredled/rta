@@ -1,0 +1,11 @@
+[project]
+name = "rta"
+version = "0.1.0"
+description = "Real-time spectrum analyzer for tuning car audio with pink noise"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.5",
+    "numpy>=1.21",
+    "sounddevice>=0.4",
+]
