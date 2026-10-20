@@ -1,35 +1,18 @@
 # RTA for tuning car audio
 
-Real-time spectrum analyzer (RTA) in Python, built for the **Dayton Audio iMM-6**
-microphone and pink noise played from an iPhone.
+Real-time spectrum analyzer (RTA) and time alignment measurement in Python, built for the
+**Dayton Audio iMM-6** microphone and test signals played from an iPhone.
 
-- `gen_noise.py` generates pink noise WAV files (both channels, left only, right only) to copy to the iPhone.
+- `gen_noise.py` generates the test signal WAV files to copy to the iPhone.
 - `rta.py` captures the microphone, applies the iMM-6 calibration and shows the response in
-  1/3-octave bands (configurable) alongside a target curve.
+  1/3-octave bands (configurable) alongside a target curve. Has a subwoofer mode and labeled
+  overlays to compare settings.
+- `delay.py` measures the left/right arrival time difference and tells you which distances to
+  enter in the head unit's time alignment.
 
 ![RTA in 1/3 octave with a 5-position spatial average](docs/rta_spatial_average.png)
 
-*Screenshots use a simulated car response (cabin gain, a 150 Hz dip and a 2.5 kHz peak)
-fed through `--wav`, not a real measurement.*
-
-## Screenshots
-
-1/6-octave resolution (`--bands 6`), showing more detail around the 150 Hz dip:
-
-![RTA in 1/6 octave](docs/rta_sixth_octave.png)
-
-Suggested EQ correction printed with **e** (excerpt) for the average above:
-
-```
-Suggested EQ correction (average of 5 positions, limits -12/+6 dB):
-     125 Hz   +5.7 dB  ++++++
-     157 Hz   +6.0 dB  ++++++
-     198 Hz   +3.1 dB  +++
-     ...
-      2 kHz   -2.9 dB  ---
-   2.52 kHz   -4.4 dB  ----
-   3.17 kHz   -3.5 dB  ---
-```
+*Screenshots use simulated car responses fed through `--wav`, not real measurements.*
 
 ## Installation
 
@@ -41,12 +24,26 @@ Requires [uv](https://docs.astral.sh/uv/). On Linux also: `sudo apt install libp
 
 ```bash
 uv sync                          # create .venv and install dependencies
-uv run gen_noise.py              # creates signals/pink_noise_{LR,L,R}.wav
+uv run gen_noise.py --type all   # creates every test signal in signals/
 uv run rta.py --list-devices     # find the microphone's device index
 uv run rta.py --device 1 --cal 7012345.txt
 ```
 
 Test without a microphone: `uv run rta.py --wav signals/pink_noise_LR.wav` (should look flat).
+All scripts accept `-v` for debug output.
+
+## Test signals
+
+| File | Use |
+|---|---|
+| `pink_noise_LR.wav` | EQ: same pink noise on both channels |
+| `pink_noise_L.wav`, `pink_noise_R.wav` | EQ: one side at a time |
+| `sub_noise_LR.wav` | Subwoofer phase/distance: pink noise limited to 40–200 Hz |
+| `rattle_sweep.wav` | Rattle test: slow 20–120 Hz sine sweep (60 s) |
+| `delay_sweeps.wav` | Time alignment: alternating left/right sweeps for `delay.py` |
+| `white_noise_*.wav` | White noise, same layout as pink (rarely needed) |
+
+All files loop seamlessly: play them on repeat.
 
 ## Using the microphone with a laptop
 
@@ -67,20 +64,90 @@ toward the front of the car, use the 0° file.
 
 ## Suggested in-car procedure
 
-1. Head unit: flat EQ, loudness/bass boost/"sound effects" off, fader and balance centered.
-   iPhone: Music EQ off, Sound Check off. Prefer cable/USB/CarPlay over Bluetooth.
-2. Play `pink_noise_LR.wav` on loop at a normal-to-loud listening level (engine off, or idling
-   with the fan off, to reduce noise).
-3. Place the microphone at the driver's head height. Move it through 4–6 positions around
-   that spot (±15 cm) and press **a** at each one to add it to the spatial average (orange
-   curve). This avoids correcting peaks/dips that only exist at a single point.
-4. Press **e** to see the suggested per-band EQ correction and apply it on the head unit's EQ.
-   Boosts are limited to +6 dB: a deep, narrow dip is usually an acoustic null that EQ
-   can't fix.
-5. Measure again, compare, and save with **s** (CSV + PNG in `captures/`).
-6. Optional: use `pink_noise_L.wav` and `pink_noise_R.wav` to compare each side.
+Before starting: head unit EQ flat, loudness/bass boost/"sound effects" off, fader and balance
+centered. iPhone: Music EQ off, Sound Check off. Prefer cable/USB/CarPlay over Bluetooth.
+Engine off, or idling with the fan off. The microphone goes at the driver's head height.
 
-## Keys
+### 1. Rattle test
+
+Play `rattle_sweep.wav` at a moderate-to-loud level and listen for buzzing door panels, mirrors,
+the license plate, etc. Fix them first: they add distortion that no EQ can remove.
+
+### 2. Time alignment (`delay.py`)
+
+1. Tape-measure the distance from your head to each speaker and enter it in the head unit's
+   time alignment (Pioneer units take distances). That alone gets most of the benefit.
+2. Play `delay_sweeps.wav` on loop, put the microphone at your head position and run:
+
+   ```bash
+   uv run delay.py --device 1 --left-cm 95   # your tape-measured left distance
+   ```
+
+   It records 12 s, finds each sweep's impulse response and prints how much later one side
+   arrives, as a distance:
+
+   ```
+   The right side arrives 1.50 ms later than the left side (spread ±0.00 ms) -> 51.4 cm farther acoustically.
+   Time alignment (distance entry on the head unit):
+     left = D,  right = D + 51 cm
+     With --left-cm 95: left = 95 cm, right = 146 cm
+   ```
+
+3. Apply it and measure again: the difference should be close to 0 ms. If time alignment was
+   already on, the measured difference adds to the current settings.
+
+![Left/right impulse responses](docs/delay.png)
+
+Only relative timing is measured (the phone and laptop clocks aren't linked), which is all the
+head unit needs. The clock drift between the two devices is estimated and removed. For the rear
+speakers, use the fader to play only the rear pair.
+
+### 3. Subwoofer (`rta.py --sub`)
+
+Sub mode shows 20–300 Hz in 1/12 octave, absolute dBFS, slow averaging, and the level of the
+octave around the crossover (`--xo`, default 80 Hz). Play `sub_noise_LR.wav` with the sub and
+the front speakers on:
+
+```bash
+uv run rta.py --device 1 --cal 7012345.txt --sub --xo 80 --labels "phase normal,phase reverse"
+```
+
+1. **Phase/polarity:** wait for the curve to settle and press **o** to keep it as an overlay
+   ("phase normal"). Switch the sub phase on the head unit, wait, press **o** again. Keep the
+   setting with the higher, smoother response around the crossover. The wrong one shows a dip.
+2. **Sub distance:** with the better phase, step the sub's distance in the time alignment
+   and keep an overlay for each value. Keep the one with the strongest, flattest crossover region.
+3. **Level:** go back to full-range `pink_noise_LR.wav` in normal mode and set the sub level
+   so the bass matches the target curve.
+
+![Sub phase test: normal vs reverse](docs/rta_sub_phase.png)
+
+### 4. EQ
+
+1. Play `pink_noise_LR.wav` on loop at a normal-to-loud listening level.
+2. Move the microphone through 4–6 positions around your head (±15 cm) and press **a** at each
+   one to add it to the spatial average (orange curve). This avoids correcting peaks/dips that
+   only exist at a single point.
+3. Press **e** to see the suggested per-band EQ correction and apply it on the head unit's EQ.
+   Boosts are limited to +6 dB: a deep, narrow dip is usually an acoustic null that EQ can't fix.
+
+   ```
+   Suggested EQ correction (average of 5 positions, limits -12/+6 dB):
+        125 Hz   +5.7 dB  ++++++
+        157 Hz   +6.0 dB  ++++++
+        ...
+      2.52 kHz   -4.4 dB  ----
+   ```
+
+4. Measure again, compare (**o** overlays help here too) and save with **s** (CSV + PNG in
+   `captures/`).
+5. Optional: use `pink_noise_L.wav` and `pink_noise_R.wav` to compare each side.
+
+1/6-octave resolution (`--bands 6`) shows more detail:
+
+![RTA in 1/6 octave](docs/rta_sixth_octave.png)
+
+## Keys (`rta.py`)
 
 | Key | Action |
 |---|---|
@@ -88,10 +155,11 @@ toward the front of the car, use the 0° file.
 | r | reset averaging and peak hold |
 | h | show/hide peak hold |
 | a / c | add position / clear spatial average |
+| o / O | keep the live curve as a labeled overlay / remove the last overlay |
 | n | normalized (0 dB = 300–3000 Hz average) / absolute dBFS |
 | ↑ / ↓ | slower / faster averaging |
 | e | print EQ correction |
-| s | save CSV + PNG |
+| s | save CSV + PNG (overlays included) |
 | q | quit |
 
 ## Useful options
@@ -100,3 +168,6 @@ toward the front of the car, use the 0° file.
 - `--target flat|car|none|file.txt` target curve. `car` = about +10 dB bass boost and a gentle
   roll-off toward the treble (typical in cars). You can use your own "frequency dB" file.
 - `--tau 2` for steadier averaging (pink noise fluctuates; 1–2 s is reasonable).
+- `--sub`, `--xo 80`: subwoofer mode and crossover frequency.
+- `--labels "a,b,c"`: names for the overlays, in order (otherwise A, B, C...).
+- `delay.py --seconds 20` for more cycles, `--save-wav` to keep the recording.

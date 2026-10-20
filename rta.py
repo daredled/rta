@@ -11,14 +11,21 @@ Keys (with the plot window focused):
     h        show / hide peak hold
     a        add the current curve to the spatial average (multiple positions)
     c        clear the spatial average
+    o / O    keep the live curve as a labeled overlay / remove the last overlay
     n        toggle normalized (0 dB over 300-3000 Hz) / absolute dBFS
     ↑ / ↓    slower / faster averaging
     e        print the suggested per-band EQ correction to the console
     s        save capture (CSV + PNG) to the captures/ folder
     q        quit
+
+Subwoofer mode (--sub): 20-300 Hz, 1/12 octave, slow averaging, absolute dBFS,
+and the level of the octave around the crossover (--xo) shown live and on every
+overlay. Play sub_noise_LR.wav and keep an overlay per setting (sub phase
+normal/reverse, sub distance...) to compare them.
 """
 import argparse
 import csv
+import logging
 import re
 import sys
 import threading
@@ -29,6 +36,10 @@ from pathlib import Path
 
 import numpy as np
 
+import logsetup
+
+log = logging.getLogger(__name__)
+
 REF_LO, REF_HI = 300.0, 3000.0  # range where the curve is normalized to 0 dB
 
 # Built-in target curves (frequency Hz, dB). "car" is a typical in-car curve:
@@ -38,6 +49,8 @@ TARGETS = {
     "car": [(20, 10), (31.5, 10), (50, 9), (80, 7), (125, 4), (200, 1.5), (300, 0),
             (1000, 0), (2000, -0.5), (4000, -2), (8000, -4), (12500, -5.5), (20000, -8)],
 }
+
+OVERLAY_COLORS = ["tab:purple", "tab:brown", "tab:pink", "tab:olive", "tab:cyan", "tab:gray"]
 
 TAU_STEPS = [0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]  # averaging time constants (s)
 
@@ -60,7 +73,7 @@ def load_curve_file(path):
             freqs.append(float(nums[0]))
             dbs.append(float(nums[1]))
     if len(freqs) < 2:
-        sys.exit(f"Error: no 'frequency dB' data found in {path}")
+        raise ValueError(f"no 'frequency dB' data found in {path}")
     order = np.argsort(freqs)
     return np.asarray(freqs)[order], np.asarray(dbs)[order]
 
@@ -160,25 +173,33 @@ def open_mic(args, ring):
 
     def callback(indata, frames, t, status):
         if status:
-            print(status, file=sys.stderr)
+            log.warning("audio input: %s", status)
         ring.write(indata[:, args.channel - 1])
 
     stream = sd.InputStream(device=args.device, channels=args.channel, samplerate=args.fs,
                             blocksize=1024, dtype="float32", callback=callback)
     stream.start()
+    log.debug("input stream open: device=%s, %d Hz, %d channel(s), latency %.1f ms",
+              stream.device, stream.samplerate, stream.channels, stream.latency * 1000)
     return stream
 
 
-def play_wav(path, fs, ring, stop):
-    """Simulate the microphone by looping a WAV in real time (for testing)."""
+def load_wav(path, fs):
+    """First channel of a 16-bit WAV as float32, checking the sample rate."""
     with wave.open(str(path), "rb") as w:
         if w.getframerate() != fs:
-            sys.exit(f"Error: the WAV is {w.getframerate()} Hz; use --fs {w.getframerate()}")
+            raise ValueError(f"the WAV is {w.getframerate()} Hz; use --fs {w.getframerate()}")
         width, nch = w.getsampwidth(), w.getnchannels()
         raw = w.readframes(w.getnframes())
     if width != 2:
-        sys.exit("Error: only 16-bit WAV files are supported")
+        raise ValueError("only 16-bit WAV files are supported")
     data = np.frombuffer(raw, dtype="<i2").reshape(-1, nch)[:, 0].astype(np.float32) / 32768
+    log.debug("loaded %s: %.1f s, %d channel(s)", path, len(data) / fs, nch)
+    return data
+
+
+def play_wav(data, fs, ring, stop):
+    """Simulate the microphone by looping WAV samples in real time (for testing)."""
     block, pos, t0 = 1024, 0, time.monotonic()
     sent = 0
     while not stop.is_set():
@@ -204,25 +225,45 @@ def main():
     p.add_argument("--channel", type=int, default=1, help="microphone input channel (default: 1)")
     p.add_argument("--fs", type=int, default=48000, help="sample rate (default: 48000)")
     p.add_argument("--fft", type=int, default=16384, help="FFT size (default: 16384)")
-    p.add_argument("--bands", type=int, default=3, choices=[1, 2, 3, 6, 12, 24],
-                   help="resolution in 1/N octave (default: 3 -> 1/3 octave)")
+    p.add_argument("--bands", type=int, choices=[1, 2, 3, 6, 12, 24],
+                   help="resolution in 1/N octave (default: 3 -> 1/3 octave; 12 with --sub)")
     p.add_argument("--fmin", type=float, default=20.0)
-    p.add_argument("--fmax", type=float, default=20000.0)
+    p.add_argument("--fmax", type=float, help="upper frequency in Hz (default: 20000; 300 with --sub)")
     p.add_argument("--cal", type=Path, help="microphone calibration file (Dayton iMM-6)")
-    p.add_argument("--target", default="car",
-                   help="target curve: 'car', 'flat', 'none' or a file path (default: car)")
-    p.add_argument("--tau", type=float, default=1.0, help="averaging time constant in s (default: 1)")
+    p.add_argument("--target",
+                   help="target curve: 'car', 'flat', 'none' or a file path (default: car; none with --sub)")
+    p.add_argument("--tau", type=float, help="averaging time constant in s (default: 1; 4 with --sub)")
+    p.add_argument("--sub", action="store_true", help="subwoofer mode (see above)")
+    p.add_argument("--xo", type=float, default=80.0, help="sub crossover frequency in Hz (default: 80)")
+    p.add_argument("--labels", help="comma-separated overlay labels, e.g. 'phase normal,phase reverse'")
     p.add_argument("--wav", type=Path, help="analyze a looping WAV instead of the microphone (testing)")
+    logsetup.add_arguments(p)
     args = p.parse_args()
+    logsetup.setup(args)
 
+    try:
+        return run(args)
+    except (ValueError, OSError) as exc:
+        log.error("%s", exc)
+        return 1
+
+
+def run(args):
     if args.list_devices:
         import sounddevice as sd
-        print(sd.query_devices())
-        return
+        log.info("%s", sd.query_devices())
+        return 0
+
+    defaults = {"bands": 12, "fmax": 300.0, "tau": 4.0, "target": "none"} if args.sub else \
+        {"bands": 3, "fmax": 20000.0, "tau": 1.0, "target": "car"}
+    for name, value in defaults.items():
+        if getattr(args, name) is None:
+            setattr(args, name, value)
+    labels = [s.strip() for s in args.labels.split(",")] if args.labels else []
 
     cal = load_curve_file(args.cal) if args.cal else None
     if cal is None:
-        print("Warning: no calibration file (--cal); the curve includes the microphone's own response.")
+        log.warning("no calibration file (--cal); the curve includes the microphone's own response")
 
     if args.target == "none":
         target = None
@@ -242,6 +283,8 @@ def main():
 
     an = Analyzer(args.fs, args.fft, args.bands, args.fmin, args.fmax, cal)
     fc = an.fc
+    log.debug("analyzer: %d bands of 1/%d octave (%.1f Hz - %.1f kHz), FFT %d (%.2f Hz/bin), %d interpolated",
+              len(fc), args.bands, fc[0], fc[-1] / 1000, args.fft, args.fs / args.fft, int(an.empty.sum()))
     target_db = None if target is None else interp_log(fc, *target)
     if target_db is not None:
         target_db -= ref_mean(fc, target_db)
@@ -249,7 +292,8 @@ def main():
     ring = Ring(max(args.fft * 2, args.fs))
     stop = threading.Event()
     if args.wav:
-        threading.Thread(target=play_wav, args=(args.wav, args.fs, ring, stop), daemon=True).start()
+        data = load_wav(args.wav, args.fs)
+        threading.Thread(target=play_wav, args=(data, args.fs, ring, stop), daemon=True).start()
         source = f"WAV: {args.wav.name}"
         stream = None
     else:
@@ -257,7 +301,7 @@ def main():
         source = "microphone"
 
     state = {
-        "paused": False, "normalized": True, "show_peak": True,
+        "paused": False, "normalized": not args.sub, "show_peak": True, "overlays": [],
         "tau_i": int(np.argmin(np.abs(np.array(TAU_STEPS) - args.tau))),
         "peak": None, "spatial": [], "last_t": time.monotonic(),
         "cur_power": None, "level": -np.inf, "clip_until": 0.0,
@@ -267,8 +311,10 @@ def main():
     fig.canvas.manager.set_window_title("RTA")
     ax.set_xscale("log")
     ax.set_xlim(args.fmin / 1.12, args.fmax * 1.12)
-    ticks = [f for f in (20, 31.5, 50, 63, 100, 125, 200, 250, 500, 1000, 2000, 4000, 5000, 8000, 10000, 16000, 20000)
-             if args.fmin <= f <= args.fmax]
+    ticks = (20, 31.5, 50, 63, 100, 125, 200, 250, 500, 1000, 2000, 4000, 5000, 8000, 10000, 16000, 20000)
+    if args.fmax <= 500:
+        ticks = (20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500)
+    ticks = [f for f in ticks if args.fmin <= f <= args.fmax]
     ax.xaxis.set_major_locator(FixedLocator(ticks))
     ax.xaxis.set_minor_locator(NullLocator())
     ax.xaxis.set_minor_formatter(NullFormatter())
@@ -283,9 +329,14 @@ def main():
     (l_live,) = ax.plot(fc, np.full_like(fc, np.nan), "o-", color="tab:blue", lw=1.8, ms=3.5, label="live")
     if target_db is None:
         l_target.set_visible(False)
-    ax.legend(loc="lower left", fontsize=9)
+
+    def refresh_legend():
+        lines = [ln for ln in (l_target, l_peak, l_spatial, l_live) if ln.get_visible()]
+        ax.legend(handles=lines + [ov["line"] for ov in state["overlays"]],
+                  loc="upper right" if args.sub else "lower left", fontsize=9)
+    refresh_legend()
     status = ax.text(0.01, 0.98, "", transform=ax.transAxes, va="top", family="monospace", fontsize=9)
-    fig.text(0.5, 0.005, "space=freeze  r=reset  h=peak  a=add position  c=clear average  "
+    fig.text(0.5, 0.005, "space=freeze  r=reset  h=peak  a=add position  c=clear average  o/O=overlay  "
              "n=normalize  ↑↓=speed  e=EQ  s=save  q=quit", ha="center", fontsize=8, color="gray")
     fig.tight_layout(rect=(0, 0.02, 1, 1))
 
@@ -296,6 +347,13 @@ def main():
         """Convert power to dB for display (normalized or absolute)."""
         db = to_db(power)
         return db - ref_mean(fc, db) if state["normalized"] else db
+
+    xo_lo, xo_hi = args.xo / np.sqrt(2), args.xo * np.sqrt(2)
+
+    def xo_level(power):
+        """Total level (dBFS) of the octave centered on the crossover frequency."""
+        sel = (fc >= xo_lo) & (fc <= xo_hi)
+        return float(to_db(np.sum(power[sel]))) if sel.any() else float("nan")
 
     def spatial_power():
         return np.mean(state["spatial"], axis=0) if state["spatial"] else None
@@ -336,14 +394,20 @@ def main():
             l_peak.set_ydata(np.full_like(fc, np.nan))
         sp = spatial_power()
         l_spatial.set_ydata(display(sp) if sp is not None else np.full_like(fc, np.nan))
+        if target_db is not None:
+            # In absolute mode the target follows the live curve's 300-3000 Hz level.
+            l_target.set_ydata(target_db if state["normalized"] else target_db + ref_mean(fc, to_db(cur)))
+        for ov in state["overlays"]:
+            ov["line"].set_ydata(display(ov["power"]))
 
         clip = "  CLIPPING! lower the microphone gain" if now < state["clip_until"] else ""
         status.set_text(
             f"source: {source}   level: {state['level']:6.1f} dBFS{clip}\n"
             f"bands: 1/{args.bands} oct   averaging τ={TAU_STEPS[state['tau_i']]:g}s   "
-            f"positions averaged: {len(state['spatial'])}"
+            f"positions averaged: {len(state['spatial'])}   overlays: {len(state['overlays'])}"
             f"{'   [FROZEN]' if state['paused'] else ''}"
             f"{'' if cal is not None else '   [UNCALIBRATED]'}"
+            + (f"\ncrossover octave {xo_lo:.0f}-{xo_hi:.0f} Hz: {xo_level(cur):6.1f} dBFS" if args.sub else "")
         )
         status.set_color("red" if clip else "black")
 
@@ -366,14 +430,15 @@ def main():
             return
         corr = eq_correction(power)
         if corr is None:
-            print("No target curve (--target none): cannot compute a correction.")
+            log.warning("no target curve (--target none): cannot compute a correction")
             return
         src = f"average of {len(state['spatial'])} positions" if state["spatial"] else "live curve"
-        print(f"\nSuggested EQ correction ({src}, limits -12/+6 dB):")
+        lines = [f"Suggested EQ correction ({src}, limits -12/+6 dB):"]
         for f, c in zip(fc, corr):
             label = f"{f/1000:.3g} kHz" if f >= 1000 else f"{f:.3g} Hz"
             bar = ("+" * int(round(c)) if c > 0 else "-" * int(round(-c)))
-            print(f"  {label:>9}  {c:+5.1f} dB  {bar}")
+            lines.append(f"  {label:>9}  {c:+5.1f} dB  {bar}")
+        log.info("\n".join(lines))
 
     def save():
         power = reference_curve()
@@ -387,16 +452,31 @@ def main():
         corr = eq_correction(power)
         with open(out / f"rta_{stamp}.csv", "w", newline="") as fh:
             wr = csv.writer(fh)
-            wr.writerow(["freq_hz", "live_dbfs", "live_rel_db", "spatial_rel_db", "target_db", "eq_correction_db"])
+            ovs = state["overlays"]
+            wr.writerow(["freq_hz", "live_dbfs", "live_rel_db", "spatial_rel_db", "target_db", "eq_correction_db"]
+                        + [f"overlay {ov['label']} dbfs" for ov in ovs])
             live_rel = db_abs - ref_mean(fc, db_abs)
             sp_rel = None if sp is None else to_db(sp) - ref_mean(fc, to_db(sp))
             for i, f in enumerate(fc):
                 wr.writerow([f"{f:.1f}", f"{db_abs[i]:.2f}", f"{live_rel[i]:.2f}",
                              "" if sp_rel is None else f"{sp_rel[i]:.2f}",
                              "" if target_db is None else f"{target_db[i]:.2f}",
-                             "" if corr is None else f"{corr[i]:.2f}"])
+                             "" if corr is None else f"{corr[i]:.2f}"]
+                            + [f"{to_db(ov['power'][i]):.2f}" for ov in ovs])
         fig.savefig(out / f"rta_{stamp}.png", dpi=120)
-        print(f"Saved {out / f'rta_{stamp}.csv'} and .png")
+        log.info("Saved %s and .png", out / f"rta_{stamp}.csv")
+
+    def add_overlay():
+        i = len(state["overlays"])
+        label = labels[i] if i < len(labels) else chr(ord("A") + i % 26)
+        power = state["cur_power"].copy()
+        if args.sub:
+            label += f" ({xo_level(power):.1f} dBFS @ XO)"
+        color = OVERLAY_COLORS[i % len(OVERLAY_COLORS)]
+        (line,) = ax.plot(fc, display(power), "-", color=color, lw=1.6, alpha=0.9, label=label)
+        state["overlays"].append({"label": label, "power": power, "line": line})
+        refresh_legend()
+        log.info("Overlay kept: %s", label)
 
     def on_key(event):
         k = event.key
@@ -409,9 +489,14 @@ def main():
             state["show_peak"] = not state["show_peak"]
         elif k == "a" and state["cur_power"] is not None:
             state["spatial"].append(state["cur_power"].copy())
-            print(f"Position {len(state['spatial'])} added to the spatial average")
+            log.info("Position %d added to the spatial average", len(state["spatial"]))
         elif k == "c":
             state["spatial"].clear()
+        elif k == "o" and state["cur_power"] is not None:
+            add_overlay()
+        elif k == "O" and state["overlays"]:
+            state["overlays"].pop()["line"].remove()
+            refresh_legend()
         elif k == "n":
             state["normalized"] = not state["normalized"]
             apply_ylim()
@@ -435,7 +520,8 @@ def main():
         if stream is not None:
             stream.stop()
             stream.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
