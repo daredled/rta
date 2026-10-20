@@ -7,6 +7,30 @@ microphone and pink noise played from an iPhone.
 - `rta.py` captures the microphone, applies the iMM-6 calibration and shows the response in
   1/3-octave bands (configurable) alongside a target curve.
 
+![RTA in 1/3 octave with a 5-position spatial average](docs/rta_spatial_average.png)
+
+*Screenshots use a simulated car response (cabin gain, a 150 Hz dip and a 2.5 kHz peak)
+fed through `--wav`, not a real measurement.*
+
+## Screenshots
+
+1/6-octave resolution (`--bands 6`), showing more detail around the 150 Hz dip:
+
+![RTA in 1/6 octave](docs/rta_sixth_octave.png)
+
+Suggested EQ correction printed with **e** (excerpt) for the average above:
+
+```
+Suggested EQ correction (average of 5 positions, limits -12/+6 dB):
+     125 Hz   +5.7 dB  ++++++
+     157 Hz   +6.0 dB  ++++++
+     198 Hz   +3.1 dB  +++
+     ...
+      2 kHz   -2.9 dB  ---
+   2.52 kHz   -4.4 dB  ----
+   3.17 kHz   -3.5 dB  ---
+```
+
 ## Installation
 
 > Microphone access from WSL is unreliable: run it with **native Windows** Python
