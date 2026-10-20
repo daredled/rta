@@ -65,10 +65,36 @@ debug output and `--help` for its options.
 
 ### Microphone settings
 
-- On Windows, disable the microphone's **audio enhancements / noise suppression / AGC**
-  (Settings → Sound → microphone → Audio enhancements: off) and set a fixed gain.
-  Otherwise Windows reshapes the signal and the measurement is useless.
-- Set the gain so the level sits between -40 and -12 dBFS with no CLIPPING warning.
+The iMM-6 is an analog microphone powered by the jack's bias voltage: it needs **no driver** on
+any system and shows up as the sound card's regular mic input. It uses CTIA wiring (the
+Apple/Android standard, used by almost all laptops); if you only get a buzz, the jack may be
+the older OMTP type and needs an OMTP↔CTIA adapter.
+
+Set the gain so the level sits between -40 and -12 dBFS with no CLIPPING warning.
+
+**Windows:** disable the microphone's **audio enhancements / noise suppression / AGC**
+(Settings → Sound → microphone → Audio enhancements: off) and set a fixed gain. Otherwise
+Windows reshapes the signal and the measurement is useless.
+
+**Linux:** the usual problem is the combo jack's headset detection:
+
+1. If a dialog asks "Headphones / Headset / Microphone" when you plug in (common on Dell),
+   choose **Headset**; otherwise the input stays on the built-in mic.
+2. In `pavucontrol` → Input Devices, or `alsamixer` (F6 to pick the card, F4 for capture),
+   select **Headset Mic** instead of "Internal Mic", set a fixed capture level and turn off any
+   "Auto Gain Control".
+3. If the mic isn't detected at all, the sound driver may need a model hint for your laptop,
+   e.g. in `/etc/modprobe.d/alsa.conf` (then reboot):
+
+   ```
+   options snd-hda-intel model=dell-headset-multi
+   ```
+
+   The right model depends on the laptop's codec (`alsa-info` shows it).
+4. Check the mic outside the app: `arecord -l` lists capture devices and
+   `arecord -f S16_LE -r 48000 -c 1 -d 5 test.wav` records 5 s to play back.
+5. In `main.py rta --list-devices`, the `pipewire` or `pulse` device is usually the easiest
+   choice: it follows what you selected in steps 1–2.
 
 ### Calibration file
 
